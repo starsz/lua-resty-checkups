@@ -283,10 +283,9 @@ function _M.extract_servers_from_upstream(skey, cls)
     end
 
     local ups_backup = cls.upstream_only_backup
-    local srvs_getter = ngx_upstream.get_primary_peers
-    if ups_backup then
-        srvs_getter = ngx_upstream.get_backup_peers
-    end
+    local ups_skip_down = cls.upstream_skip_down
+    local srvs_getter = ngx_upstream.get_servers
+
     local srvs, err = srvs_getter(up_key)
     if not srvs and err then
         log(ERR, "failed to get servers in upstream ", err)
@@ -294,13 +293,21 @@ function _M.extract_servers_from_upstream(skey, cls)
     end
 
     for _, srv in ipairs(srvs) do
+        if ups_skip_down and srv.down then
+            goto continue
+        end
+
+        if ups_backup and not srv.backup then
+            goto continue
+        end
+
         local host, port = extract_srv_host_port(srv.name)
         if not host then
             log(ERR, "invalid server name: ", srv.name)
             return
         end
         peer_id_dict[_gen_key(skey, { host = host, port = port })] = {
-            id = srv.id, backup = ups_backup and true or false}
+            id = srv.id, backup = srv.backup and true or false}
         tab_insert(cls.servers, {
             host = host,
             port = port,
@@ -308,6 +315,8 @@ function _M.extract_servers_from_upstream(skey, cls)
             max_fails = srv.max_fails,
             fail_timeout = srv.fail_timeout,
         })
+
+        ::continue::
     end
 end
 
